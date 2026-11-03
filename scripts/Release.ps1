@@ -7,7 +7,11 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $toc = [IO.File]::ReadAllText((Join-Path $repo 'CupCheck.toc'))
 if ($toc -notmatch '(?m)^## Version:\s*(\S+)') { throw 'no Version line in TOC' }
-$tag = "v$($Matches[1])"
+$version = $Matches[1]
+$tag = "v$version"
+
+$changelog = [IO.File]::ReadAllText((Join-Path $repo 'CHANGELOG.md'))
+if ($changelog -notmatch "(?m)^## $([regex]::Escape($version))\s*$") { throw "CHANGELOG.md has no '## $version' entry" }
 
 if (git -C $repo status --porcelain) { throw 'working tree has uncommitted changes' }
 git -C $repo fetch -q --tags

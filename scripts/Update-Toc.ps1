@@ -67,14 +67,20 @@ $msg = "Interface +$($add -join ', ') ($summary), version $oldVer -> $newVer"
 
 if ($DryRun) { Log "DRY RUN: $msg"; exit 0 }
 
-if (git -C $repo status --porcelain -- CupCheck.toc) { Log 'CupCheck.toc has uncommitted changes, aborting'; exit 1 }
+$changelog = Join-Path $repo 'CHANGELOG.md'
+if (git -C $repo status --porcelain -- CupCheck.toc CHANGELOG.md) { Log 'TOC or CHANGELOG has uncommitted changes, aborting'; exit 1 }
 if ((git -C $repo rev-parse --abbrev-ref HEAD) -ne 'main') { Log 'not on main, aborting'; exit 1 }
 
 $text = $text -replace '(?m)^## Interface:[^\r\n]*', "## Interface: $newList"
 $text = $text -replace '(?m)^## Version:[^\r\n]*', "## Version: $newVer"
 [IO.File]::WriteAllText($toc, $text, (New-Object Text.UTF8Encoding($false)))
 
-git -C $repo add CupCheck.toc
+$cl = [IO.File]::ReadAllText($changelog)
+$entry = "## $newVer`n- Added support for WoW interface version $($add -join ', ').`n`n"
+$cl = $cl -replace '(?m)^(# Changelog\r?\n\r?\n)', "`$1$entry"
+[IO.File]::WriteAllText($changelog, $cl, (New-Object Text.UTF8Encoding($false)))
+
+git -C $repo add CupCheck.toc CHANGELOG.md
 git -C $repo commit -q -m "Bump interface to $newList" -m 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'
 if (-not $NoPush) { git -C $repo push -q }
 Log "BUMPED: $msg"

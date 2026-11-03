@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,4 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # Manual runs (Actions tab, Run workflow) are dry runs: package, don't upload.
       - uses: BigWigsMods/packager@v2
+        with:
+          args: ${{ github.event_name == 'workflow_dispatch' && '-d' || '' }}
