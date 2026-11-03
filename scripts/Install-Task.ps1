@@ -1,5 +1,5 @@
 # One-time setup: registers a scheduled task that runs Update-Toc.ps1 at logon
-# and every 4 hours. Run once from an elevated PowerShell. The task itself runs
+# and every 12 hours. Run once from an elevated PowerShell. The task itself runs
 # as the current user with normal (limited) rights.
 $ErrorActionPreference = 'Stop'
 
@@ -10,7 +10,7 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
   -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
 $triggers = @(
   (New-ScheduledTaskTrigger -AtLogOn -User $user),
-  (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 4))
+  (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 12))
 )
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
