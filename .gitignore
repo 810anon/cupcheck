@@ -1,2 +1,3 @@
 .release/
 *.zip
+scripts/update-toc.log
