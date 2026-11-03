@@ -1,0 +1,6 @@
+package-as: CupCheck
+
+ignore:
+  - README.md
+  - scripts
+  - .github

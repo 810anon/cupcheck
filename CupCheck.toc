@@ -1,0 +1,9 @@
+## Interface: 16001, 120105, 120107
+## Title: Cup Check
+## Notes: Cup Check: tracks missing class buffs on your raid frames. Covering the essentials since level 1.
+## IconTexture: Interface\AddOns\CupCheck\icon
+## Author: 810anon
+## Version: 0.2.0
+## SavedVariables: CupCheckDB
+
+CupCheck.lua
