@@ -1,3 +1,4 @@
 .release/
 *.zip
 scripts/update-toc.log
+scripts/auto-release.enabled

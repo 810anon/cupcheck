@@ -84,4 +84,20 @@ git -C $repo add CupCheck.toc CHANGELOG.md
 git -C $repo commit -q -m "Bump interface to $newList" -m 'Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>'
 if (-not $NoPush) { git -C $repo push -q }
 Log "BUMPED: $msg"
-Notify 'Cup Check TOC bumped' "Interface $newList, version $newVer. Run scripts\Release.ps1 to publish."
+
+# Auto-release is opt-in: create scripts\auto-release.enabled to turn it on, delete it to turn it off.
+$released = $false
+if (-not $NoPush -and (Test-Path (Join-Path $PSScriptRoot 'auto-release.enabled'))) {
+  try {
+    & (Join-Path $PSScriptRoot 'Release.ps1') -Yes
+    $released = $true
+    Log "RELEASED v$newVer"
+  } catch {
+    Log "release failed: $_"
+  }
+}
+if ($released) {
+  Notify 'Cup Check released' "Interface $newList published as v$newVer."
+} else {
+  Notify 'Cup Check TOC bumped' "Interface $newList, version $newVer. Run scripts\Release.ps1 to publish."
+}
