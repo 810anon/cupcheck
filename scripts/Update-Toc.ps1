@@ -87,7 +87,12 @@ Log "BUMPED: $msg"
 
 # Auto-release is opt-in: create scripts\auto-release.enabled to turn it on, delete it to turn it off.
 $released = $false
-if (-not $NoPush -and (Test-Path (Join-Path $PSScriptRoot 'auto-release.enabled'))) {
+$autoRelease = Test-Path (Join-Path $PSScriptRoot 'auto-release.enabled')
+# Inert until a first release tag exists, so the first release is always done by hand.
+git -C $repo fetch -q --tags
+$hasRelease = [bool](git -C $repo tag -l 'v*')
+if ($autoRelease -and -not $hasRelease) { Log 'auto-release waiting: no release tag yet (run scripts\Release.ps1 once)' }
+if (-not $NoPush -and $autoRelease -and $hasRelease) {
   try {
     & (Join-Path $PSScriptRoot 'Release.ps1') -Yes
     $released = $true
