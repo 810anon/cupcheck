@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+- Per-class default tracked buffs: Druid (Mark of the Wild, Omen of Clarity), Priest (Power Word: Fortitude, Divine Spirit, Inner Fire), Mage (Arcane Intellect), Warrior (Battle Shout), Paladin (Blessings of Might, Wisdom and Kings), Shaman (Lightning Shield), Hunter (Aspect of the Hawk).
+- Mutually exclusive buffs track only the best known one by default: Mage Armor, then Ice Armor, then Frost Armor; Demon Armor, then Demon Skin.
+- Buffs you already enabled or disabled in the options window keep your choice.
+
 ## 0.3.0
 - Class buff list is now matched by spell name, so it finds whichever rank the character knows instead of relying on a fixed spell ID. Fixes missing entries such as Power Word: Shield and Thorns on the Forever client.
 - Added the full set of Classic-era party and self buffs for every class: Druid, Priest, Mage, Warrior, Paladin (blessings and auras), Shaman (Lightning Shield, water spells, totem auras), Hunter, Rogue and Warlock.

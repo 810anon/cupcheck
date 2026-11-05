@@ -71,8 +71,20 @@ local SELF_ONLY = {
     ["Mana Shield"] = true, ["Ice Barrier"] = true, ["Lightning Shield"] = true, ["Aspect of the Hawk"] = true,
     ["Aspect of the Wild"] = true, ["Slice and Dice"] = true, ["Demon Skin"] = true, ["Demon Armor"] = true,
 }
+-- What each class normally keeps up: tracked out of the box (everything else starts untracked).
 local DEFAULT_TRACKED_NAMES = {
-    ["Mark of the Wild"] = true, ["Power Word: Fortitude"] = true, ["Arcane Intellect"] = true, ["Battle Shout"] = true,
+    ["Mark of the Wild"] = true, ["Omen of Clarity"] = true,                                  -- Druid
+    ["Power Word: Fortitude"] = true, ["Divine Spirit"] = true, ["Inner Fire"] = true,        -- Priest
+    ["Arcane Intellect"] = true,                                                              -- Mage
+    ["Battle Shout"] = true,                                                                  -- Warrior
+    ["Blessing of Might"] = true, ["Blessing of Wisdom"] = true, ["Blessing of Kings"] = true, -- Paladin
+    ["Lightning Shield"] = true,                                                              -- Shaman
+    ["Aspect of the Hawk"] = true,                                                            -- Hunter
+}
+-- Mutually exclusive buffs: only the best one the character knows is tracked by default.
+local DEFAULT_BEST_OF = {
+    { "Mage Armor", "Ice Armor", "Frost Armor" },
+    { "Demon Armor", "Demon Skin" },
 }
 
 local DEFAULTS = {
@@ -148,6 +160,15 @@ local function AllBuffs()
     end
     if #out == 0 then for _, id in ipairs(ids) do add(id, false, false) end end
     for _, id in ipairs(db.custom[playerClass] or {}) do add(id, true, false) end
+    local bestOf = {}
+    for _, group in ipairs(DEFAULT_BEST_OF) do
+        for _, n in ipairs(group) do
+            if seen[n] then bestOf[n] = true break end
+        end
+    end
+    for _, b in ipairs(out) do
+        if db.tracked[b.key] == nil and bestOf[b.name] then b.tracked = true end
+    end
     return out
 end
 
