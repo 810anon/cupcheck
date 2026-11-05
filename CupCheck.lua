@@ -21,6 +21,60 @@ local DEFAULT_TRACKED = {
     [6673] = true, [462854] = true, [364342] = true,
 }
 
+-- Buffs matched by spell NAME, so every rank (and any client's spell IDs) resolves to whatever
+-- the character has actually learned. Spells the character doesn't know are not listed.
+local CLASSIC_BUFFS = {
+    DRUID   = { "Mark of the Wild", "Thorns", "Omen of Clarity", "Nature's Grasp", "Rejuvenation", "Regrowth", "Innervate" },
+    PRIEST  = { "Power Word: Fortitude", "Divine Spirit", "Shadow Protection", "Power Word: Shield", "Renew", "Fear Ward",
+                "Levitate", "Inner Fire", "Shadowform", "Touch of Weakness" },
+    MAGE    = { "Arcane Intellect", "Dampen Magic", "Amplify Magic", "Slow Fall", "Frost Armor", "Ice Armor", "Mage Armor",
+                "Mana Shield", "Ice Barrier" },
+    WARRIOR = { "Battle Shout" },
+    PALADIN = { "Blessing of Might", "Blessing of Wisdom", "Blessing of Kings", "Blessing of Salvation", "Blessing of Light",
+                "Blessing of Sanctuary", "Blessing of Freedom", "Blessing of Protection", "Blessing of Sacrifice",
+                "Devotion Aura", "Retribution Aura", "Concentration Aura", "Sanctity Aura",
+                "Shadow Resistance Aura", "Frost Resistance Aura", "Fire Resistance Aura" },
+    SHAMAN  = { "Lightning Shield", "Water Walking", "Water Breathing", "Strength of Earth Totem", "Grace of Air Totem",
+                "Windfury Totem", "Stoneskin Totem", "Mana Spring Totem", "Healing Stream Totem", "Tranquil Air Totem",
+                "Fire Resistance Totem", "Frost Resistance Totem", "Nature Resistance Totem" },
+    HUNTER  = { "Trueshot Aura", "Aspect of the Pack", "Aspect of the Hawk", "Aspect of the Wild" },
+    ROGUE   = { "Slice and Dice" },
+    WARLOCK = { "Unending Breath", "Detect Invisibility", "Demon Skin", "Demon Armor" },
+}
+
+-- Group versions of a buff count as the single-target buff being present (and aren't listed on their own),
+-- and totem spells put an aura with a different name on the party.
+local ALT_AURAS = {
+    ["Mark of the Wild"] = { "Gift of the Wild" },
+    ["Power Word: Fortitude"] = { "Prayer of Fortitude" },
+    ["Divine Spirit"] = { "Prayer of Spirit" },
+    ["Shadow Protection"] = { "Prayer of Shadow Protection" },
+    ["Arcane Intellect"] = { "Arcane Brilliance" },
+    ["Strength of Earth Totem"] = { "Strength of Earth" },
+    ["Grace of Air Totem"] = { "Grace of Air" },
+    ["Stoneskin Totem"] = { "Stoneskin" },
+    ["Mana Spring Totem"] = { "Mana Spring" },
+    ["Healing Stream Totem"] = { "Healing Stream" },
+    ["Tranquil Air Totem"] = { "Tranquil Air" },
+    ["Fire Resistance Totem"] = { "Fire Resistance" },
+    ["Frost Resistance Totem"] = { "Frost Resistance" },
+    ["Nature Resistance Totem"] = { "Nature Resistance" },
+}
+local GROUP_SPELLS = {
+    ["Gift of the Wild"] = true, ["Prayer of Fortitude"] = true, ["Prayer of Spirit"] = true,
+    ["Prayer of Shadow Protection"] = true, ["Arcane Brilliance"] = true,
+}
+-- Buffs you can only put on yourself: they're only checked on your own frame.
+local SELF_ONLY = {
+    ["Omen of Clarity"] = true, ["Nature's Grasp"] = true, ["Inner Fire"] = true, ["Shadowform"] = true,
+    ["Touch of Weakness"] = true, ["Frost Armor"] = true, ["Ice Armor"] = true, ["Mage Armor"] = true,
+    ["Mana Shield"] = true, ["Ice Barrier"] = true, ["Lightning Shield"] = true, ["Aspect of the Hawk"] = true,
+    ["Aspect of the Wild"] = true, ["Slice and Dice"] = true, ["Demon Skin"] = true, ["Demon Armor"] = true,
+}
+local DEFAULT_TRACKED_NAMES = {
+    ["Mark of the Wild"] = true, ["Power Word: Fortitude"] = true, ["Arcane Intellect"] = true, ["Battle Shout"] = true,
+}
+
 local DEFAULTS = {
     frameMode = "always",      -- "always" | "party" | "raid"
     buffMode = "missing",      -- "missing" | "active"
@@ -59,27 +113,55 @@ local function Known(id)
     return C_SpellBook and C_SpellBook.IsSpellKnown and C_SpellBook.IsSpellKnown(id) or false
 end
 
-local function IsTracked(id, custom)
-    local v = db.tracked[id]
-    if v == nil then return custom or DEFAULT_TRACKED[id] or false end
+-- key is the saved-settings key: the spell ID for ID-listed and custom buffs, the spell name for name-matched ones.
+local function IsTracked(key, custom, name, id)
+    local v = db.tracked[key]
+    if v == nil then return custom or DEFAULT_TRACKED[id] or DEFAULT_TRACKED_NAMES[name] or false end
     return v
 end
 
 -- Every buff listed for this class (known spells only; if none resolve, list them all), with tracked state.
 local function AllBuffs()
-    local out, have = {}, {}
+    local out, have, seen = {}, {}, {}
+    local function push(key, id, name, custom)
+        have[id] = true
+        seen[name] = true
+        out[#out + 1] = { id = id, key = key, name = name, icon = C_Spell.GetSpellTexture(id), custom = custom,
+            tracked = IsTracked(key, custom, name, id) }
+    end
     local function add(id, custom, requireKnown)
         if have[id] then return end
         local name = C_Spell.GetSpellName(id)
         if not name or (requireKnown and not Known(id)) then return end
-        have[id] = true
-        out[#out + 1] = { id = id, name = name, icon = C_Spell.GetSpellTexture(id), custom = custom, tracked = IsTracked(id, custom) }
+        if not custom and (GROUP_SPELLS[name] or seen[name]) then return end
+        push(id, id, name, custom)
     end
     local ids = CLASS_BUFFS[playerClass] or {}
     for _, id in ipairs(ids) do add(id, false, true) end
+    -- By name: finds whichever rank the character knows (the spellbook may only hold the newest rank).
+    for _, name in ipairs(CLASSIC_BUFFS[playerClass] or {}) do
+        if not seen[name] then
+            local info = C_Spell.GetSpellInfo(name)
+            local id = info and info.spellID
+            if id and not have[id] and Known(id) then push(name, id, name, false) end
+        end
+    end
     if #out == 0 then for _, id in ipairs(ids) do add(id, false, false) end end
     for _, id in ipairs(db.custom[playerClass] or {}) do add(id, true, false) end
     return out
+end
+
+-- The aura on a unit for a tracked buff, counting group versions of the same buff.
+local function FindAura(unit, buff)
+    local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buff.name, "HELPFUL")
+    if aura then return aura end
+    local alt = ALT_AURAS[buff.name]
+    if alt then
+        for _, n in ipairs(alt) do
+            aura = C_UnitAuras.GetAuraDataBySpellName(unit, n, "HELPFUL")
+            if aura then return aura end
+        end
+    end
 end
 
 local function LoadBuffs()
@@ -151,13 +233,15 @@ local function UpdateFrame(frame)
     local canRead = not InCombatLockdown()
     local valid = canRead and UnitExists(unit) and UnitIsPlayer(unit) and UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit) and UnitIsFriend("player", unit)
+    local isSelf = valid and UnitIsUnit(unit, "player") or false
     for i, buff in ipairs(tracked) do
         local b = list[i]
         if not b then b = NewIcon(frame); list[i] = b end
         if canRead then
-            local aura = valid and C_UnitAuras.GetAuraDataBySpellName(unit, buff.name, "HELPFUL") or nil
-            if db.buffMode == "missing" then b.want = valid and not aura or false
-            else b.want = valid and aura ~= nil or false end
+            local applies = valid and (isSelf or not SELF_ONLY[buff.name]) or false
+            local aura = applies and FindAura(unit, buff) or nil
+            if db.buffMode == "missing" then b.want = applies and not aura or false
+            else b.want = applies and aura ~= nil or false end
             b.icon:SetTexture(buff.icon)
             if b.want and aura and aura.duration and aura.duration > 0 then
                 CooldownFrame_Set(b.cooldown, aura.expirationTime - aura.duration, aura.duration, true)
@@ -549,9 +633,9 @@ local function CreateOptions()
                 if not self.custom then return end
                 local list = db.custom[playerClass]
                 for k, id in ipairs(list or {}) do if id == self.id then table.remove(list, k) break end end
-                db.tracked[self.id] = nil
+                db.tracked[self.key] = nil
             else
-                db.tracked[self.id] = not self.tracked
+                db.tracked[self.key] = not self.tracked
             end
             ApplyAll()
             f:GetScript("OnShow")(f)
@@ -565,7 +649,7 @@ local function CreateOptions()
             local key = b.tracked and "tracked" or "untracked"
             n[key] = n[key] + 1
             local r = GetRow(key, n[key])
-            r.id, r.custom, r.tracked = b.id, b.custom, b.tracked
+            r.id, r.key, r.custom, r.tracked = b.id, b.key, b.custom, b.tracked
             r.pic:SetTexture(b.icon)
             r.label:SetText(b.name)
             r:Show()
@@ -788,4 +872,16 @@ ev:SetScript("OnEvent", function(_, event, arg1)
 end)
 
 SLASH_CUPCHECK1 = "/cupcheck"
-SlashCmdList.CUPCHECK = function() ToggleOptions() end
+-- /cupcheck debug: shows how each name-matched buff resolved for this character.
+local function DebugDump()
+    Print("class " .. tostring(playerClass))
+    for _, name in ipairs(CLASSIC_BUFFS[playerClass] or {}) do
+        local info = C_Spell.GetSpellInfo(name)
+        local id = info and info.spellID
+        Print(name .. ": " .. (id and (id .. (Known(id) and " known" or " not known")) or "not found"))
+    end
+end
+
+SlashCmdList.CUPCHECK = function(msg)
+    if strtrim(msg or ""):lower() == "debug" then Safe("debug", DebugDump) else ToggleOptions() end
+end
