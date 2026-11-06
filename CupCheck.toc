@@ -3,7 +3,7 @@
 ## Notes: Cup Check: tracks missing class buffs on your raid frames. Covering the essentials since level 1.
 ## IconTexture: Interface\AddOns\CupCheck\icon
 ## Author: 810anon
-## Version: 0.3.1
+## Version: 0.3.2
 ## X-Curse-Project-ID: 1781936
 ## SavedVariables: CupCheckDB
 

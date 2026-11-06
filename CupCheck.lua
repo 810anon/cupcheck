@@ -508,6 +508,14 @@ local function ApplyFrameMode()
     end
 end
 
+-- Fallback for the state driver above: also hide/show the solo frame from group events (out of combat only),
+-- in case the client doesn't evaluate [group] the way retail does.
+local function SyncSoloVisibility()
+    local solo = CupCheckSolo
+    if not solo or InCombatLockdown() then return end
+    solo:SetShown(db.frameMode == "always" and not IsInGroup())
+end
+
 local function PositionMinimapButton()
     local b = CupCheckMinimapButton
     if not b then return end
@@ -521,6 +529,7 @@ end
 local function ApplyAll(rescan)
     PositionMinimapButton()
     Safe("frames", ApplyFrameMode)
+    Safe("solo visibility", SyncSoloVisibility)
     Safe("buffs", LoadBuffs)
     Safe("refresh", RefreshAll, rescan)
 end
@@ -896,6 +905,9 @@ SLASH_CUPCHECK1 = "/cupcheck"
 -- /cupcheck debug: shows how each name-matched buff resolved for this character.
 local function DebugDump()
     Print("class " .. tostring(playerClass))
+    local solo = CupCheckSolo
+    Print("group: " .. tostring(IsInGroup()) .. ", raid: " .. tostring(IsInRaid())
+        .. ", solo frame shown: " .. tostring(solo and solo:IsShown()) .. ", mode: " .. tostring(db and db.frameMode))
     for _, name in ipairs(CLASSIC_BUFFS[playerClass] or {}) do
         local info = C_Spell.GetSpellInfo(name)
         local id = info and info.spellID

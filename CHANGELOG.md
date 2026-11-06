@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+- The solo frame is now also hidden and shown from group roster events (out of combat), as a fallback for clients where the `[group]` state driver condition does not hide it in a party.
+- `/cupcheck debug` now also prints group and raid state and whether the solo frame is shown.
+
 ## 0.3.1
 - Per-class default tracked buffs: Druid (Mark of the Wild, Omen of Clarity), Priest (Power Word: Fortitude, Divine Spirit, Inner Fire), Mage (Arcane Intellect), Warrior (Battle Shout), Paladin (Blessings of Might, Wisdom and Kings), Shaman (Lightning Shield), Hunter (Aspect of the Hawk).
 - Mutually exclusive buffs track only the best known one by default: Mage Armor, then Ice Armor, then Frost Armor; Demon Armor, then Demon Skin.
