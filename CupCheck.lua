@@ -24,7 +24,7 @@ local DEFAULT_TRACKED = {
 -- Buffs matched by spell NAME, so every rank (and any client's spell IDs) resolves to whatever
 -- the character has actually learned. Spells the character doesn't know are not listed.
 local CLASSIC_BUFFS = {
-    DRUID   = { "Mark of the Wild", "Thorns", "Omen of Clarity", "Nature's Grasp", "Rejuvenation", "Regrowth", "Innervate" },
+    DRUID   = { "Mark of the Wild", "Thorns", "Nature's Grasp", "Rejuvenation", "Regrowth", "Innervate" },
     PRIEST  = { "Power Word: Fortitude", "Divine Spirit", "Shadow Protection", "Power Word: Shield", "Renew", "Fear Ward",
                 "Levitate", "Inner Fire", "Shadowform", "Touch of Weakness" },
     MAGE    = { "Arcane Intellect", "Dampen Magic", "Amplify Magic", "Slow Fall", "Frost Armor", "Ice Armor", "Mage Armor",
@@ -66,14 +66,14 @@ local GROUP_SPELLS = {
 }
 -- Buffs you can only put on yourself: they're only checked on your own frame.
 local SELF_ONLY = {
-    ["Omen of Clarity"] = true, ["Nature's Grasp"] = true, ["Inner Fire"] = true, ["Shadowform"] = true,
+    ["Nature's Grasp"] = true, ["Inner Fire"] = true, ["Shadowform"] = true,
     ["Touch of Weakness"] = true, ["Frost Armor"] = true, ["Ice Armor"] = true, ["Mage Armor"] = true,
     ["Mana Shield"] = true, ["Ice Barrier"] = true, ["Lightning Shield"] = true, ["Aspect of the Hawk"] = true,
     ["Aspect of the Wild"] = true, ["Slice and Dice"] = true, ["Demon Skin"] = true, ["Demon Armor"] = true,
 }
 -- What each class normally keeps up: tracked out of the box (everything else starts untracked).
 local DEFAULT_TRACKED_NAMES = {
-    ["Mark of the Wild"] = true, ["Omen of Clarity"] = true,                                  -- Druid
+    ["Mark of the Wild"] = true,                                                              -- Druid
     ["Power Word: Fortitude"] = true, ["Divine Spirit"] = true, ["Inner Fire"] = true,        -- Priest
     ["Arcane Intellect"] = true,                                                              -- Mage
     ["Battle Shout"] = true,                                                                  -- Warrior
@@ -251,7 +251,11 @@ local function UpdateFrame(frame)
     if type(unit) ~= "string" then return end
     local list = overlays[frame]
     if not list then list = {}; overlays[frame] = list end
-    local canRead = not InCombatLockdown()
+    -- Aura data can be unreadable in a fight (or boss encounter) before the combat lockdown flag is set;
+    -- an empty read would look like "missing", so hold the last good state instead.
+    local canRead = not InCombatLockdown() and not UnitAffectingCombat("player")
+        and not (IsEncounterInProgress and IsEncounterInProgress())
+        and not UnitAffectingCombat(unit)
     local valid = canRead and UnitExists(unit) and UnitIsPlayer(unit) and UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit) and UnitIsFriend("player", unit)
     local isSelf = valid and UnitIsUnit(unit, "player") or false
@@ -831,7 +835,7 @@ local dirtyUnits, flushQueued = {}, false
 
 local function FlushAuras()
     flushQueued = false
-    if InCombatLockdown() then wipe(dirtyUnits) return end
+    if InCombatLockdown() or UnitAffectingCombat("player") then wipe(dirtyUnits) return end
     for _, f in ipairs(frames) do
         local u = f.displayedUnit or f.unit
         if type(u) == "string" and dirtyUnits[u] then Safe("update", UpdateFrame, f) end
@@ -860,7 +864,7 @@ ev:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")   -- layout switched or saved
 ev:RegisterEvent("UNIT_AURA")
 ev:SetScript("OnEvent", function(_, event, arg1)
     if event == "UNIT_AURA" then
-        if type(arg1) == "string" and not InCombatLockdown() then
+        if type(arg1) == "string" and not InCombatLockdown() and not UnitAffectingCombat("player") then
             dirtyUnits[arg1] = true
             if not flushQueued then flushQueued = true; C_Timer.After(0.2, FlushAuras) end
         end

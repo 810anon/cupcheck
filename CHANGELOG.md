@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.3
+- Removed Omen of Clarity from the Druid buff list. It is a passive on the Forever client, so there is nothing to track.
+- Icons no longer re-read buffs while you, the player being checked, or a boss encounter is in combat, even before the combat lockdown flag is set. This fixes icons showing on buffed players during some group and raid fights.
+
 ## 0.3.2
 - The solo frame is now also hidden and shown from group roster events (out of combat), as a fallback for clients where the `[group]` state driver condition does not hide it in a party.
 - `/cupcheck debug` now also prints group and raid state and whether the solo frame is shown.
