@@ -64,6 +64,15 @@ local GROUP_SPELLS = {
     ["Gift of the Wild"] = true, ["Prayer of Fortitude"] = true, ["Prayer of Spirit"] = true,
     ["Prayer of Shadow Protection"] = true, ["Arcane Brilliance"] = true,
 }
+-- Forever camp objects give slightly weaker versions of these class buffs, merged into one "Camp Benefits"
+-- buff, and the class buff won't apply over them. The merged buff hides which objects it holds, so when the
+-- option is on, having Camp Benefits counts these as present.
+local CAMP_BENEFITS = "Camp Benefits"
+local CAMP_COVERED = {
+    ["Power Word: Fortitude"] = true, ["Mark of the Wild"] = true, ["Arcane Intellect"] = true,
+    ["Divine Spirit"] = true, ["Blessing of Might"] = true, ["Blessing of Kings"] = true,
+    ["Blessing of Wisdom"] = true, ["Strength of Earth Totem"] = true,
+}
 -- Buffs you can only put on yourself: they're only checked on your own frame.
 local SELF_ONLY = {
     ["Nature's Grasp"] = true, ["Inner Fire"] = true, ["Shadowform"] = true,
@@ -94,6 +103,9 @@ local DEFAULTS = {
     minimapShow = true,
     minimapAngle = 215,
     soloClassColors = true,    -- class-colored health bar on the solo frame
+    campCounts = true,         -- a Camp Benefits buff counts as the class buffs camp objects substitute for
+    weakenedSoul = true,       -- priests: show a Weakened Soul timer on a member's frame after you shield them
+    wsDuration = 15,           -- seconds the timer runs (set with /cupcheck ws <seconds>)
 }
 
 local ANCHORS = { "BOTTOMRIGHT", "BOTTOMLEFT", "TOPRIGHT", "TOPLEFT" }
@@ -183,6 +195,9 @@ local function FindAura(unit, buff)
             if aura then return aura end
         end
     end
+    if db.campCounts and CAMP_COVERED[buff.name] then
+        return C_UnitAuras.GetAuraDataBySpellName(unit, CAMP_BENEFITS, "HELPFUL")
+    end
 end
 
 local function LoadBuffs()
@@ -228,7 +243,10 @@ local function Layout(frame, list)
         end
     end
     local prev
-    for _, b in ipairs(list) do
+    local seq = {}
+    for _, b in ipairs(list) do seq[#seq + 1] = b end
+    if list.ws then seq[#seq + 1] = list.ws end
+    for _, b in ipairs(seq) do
         b:SetSize(size, size)
         b:ClearAllPoints()
         if b.want then
@@ -243,6 +261,23 @@ local function Layout(frame, list)
             b:Hide()
         end
     end
+end
+
+-- Weakened Soul timer. Reading other players' auras is blocked in combat, so instead of reading the debuff
+-- we note our own Power Word: Shield casts (those events aren't restricted) and run a local timer per name.
+local WS_SPELL = "Power Word: Shield"
+local WS_ICON = 135940
+local wsExpires = {}   -- short player name -> GetTime() when the timer ends
+local wsPending        -- { guid, name } for the shield cast in flight
+
+local function WSExpiry(unit)
+    local ok, exp = pcall(function()
+        local n = UnitName(unit)
+        local e = wsExpires[n]
+        if e and e <= GetTime() then wsExpires[n] = nil; return nil end
+        return e
+    end)
+    return ok and exp or nil
 end
 
 local function UpdateFrame(frame)
@@ -276,6 +311,25 @@ local function UpdateFrame(frame)
         end
     end
     for i = #tracked + 1, #list do list[i].want = false end   -- buffs hidden in options
+    local w = list.ws
+    if db.weakenedSoul then
+        if not w then
+            w = NewIcon(frame)
+            w.icon:SetTexture(C_Spell.GetSpellTexture(6788) or WS_ICON)
+            list.ws = w
+        end
+        local exp = WSExpiry(unit)
+        if exp then
+            local dur = db.wsDuration or 15
+            w.want = true
+            CooldownFrame_Set(w.cooldown, exp - dur, dur, true)
+        else
+            w.want = false
+            CooldownFrame_Clear(w.cooldown)
+        end
+    elseif w then
+        w.want = false
+    end
     Layout(frame, list)
 end
 
@@ -583,7 +637,7 @@ end
 
 local function CreateOptions()
     local f = CreateFrame("Frame", "CupCheckOptions", UIParent, "BasicFrameTemplateWithInset")
-    f:SetSize(400, 640)
+    f:SetSize(400, 716)
     f:SetPoint("CENTER")
     f:SetMovable(true)
     f:EnableMouse(true)
@@ -729,6 +783,17 @@ local function CreateOptions()
     MakeCheck(f, "Class-colored solo frame", -580,
         function() return db.soloClassColors end,
         function(v) db.soloClassColors = v; ApplyAll() end)
+    MakeCheck(f, "Camp Benefits counts as class buffs", -604,
+        function() return db.campCounts end,
+        function(v) db.campCounts = v; ApplyAll() end)
+    MakeCheck(f, "Weakened Soul timer after you shield (Priest)", -628,
+        function() return db.weakenedSoul end,
+        function(v) db.weakenedSoul = v; ApplyAll() end)
+    local wsNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    wsNote:SetPoint("TOPLEFT", 44, -652)
+    wsNote:SetWidth(340)
+    wsNote:SetJustifyH("LEFT")
+    wsNote:SetText("Shows even with \"Display Only Dispellable Debuffs\" on, since it can't be dispelled.")
 
     local tagline = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     tagline:SetPoint("TOP", logo, "BOTTOM", 0, -4)
@@ -862,8 +927,36 @@ ev:RegisterEvent("PLAYER_REGEN_ENABLED")
 ev:RegisterEvent("SPELLS_CHANGED")
 ev:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")   -- layout switched or saved
 ev:RegisterEvent("UNIT_AURA")
-ev:SetScript("OnEvent", function(_, event, arg1)
-    if event == "UNIT_AURA" then
+ev:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
+ev:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+ev:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)
+    if event == "UNIT_SPELLCAST_SENT" then
+        -- (unit, target name, castGUID, spellID): remember who a Power Word: Shield is headed for.
+        if db and db.weakenedSoul then
+            pcall(function()
+                local info = C_Spell.GetSpellInfo(arg4)
+                if info and info.name == WS_SPELL then
+                    local name = type(arg2) == "string" and arg2 ~= "" and strsplit("-", arg2) or UnitName("player")
+                    wsPending = { guid = arg3, name = name }
+                else
+                    wsPending = nil
+                end
+            end)
+        end
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        -- (unit, castGUID, spellID): the shield landed, so start that player's timer.
+        if db and db.weakenedSoul and wsPending then
+            pcall(function()
+                if wsPending.guid == arg2 then
+                    local dur = db.wsDuration or 15
+                    wsExpires[wsPending.name] = GetTime() + dur
+                    wsPending = nil
+                    RefreshAll()
+                    C_Timer.After(dur + 0.2, RefreshAll)
+                end
+            end)
+        end
+    elseif event == "UNIT_AURA" then
         if type(arg1) == "string" and not InCombatLockdown() and not UnitAffectingCombat("player") then
             dirtyUnits[arg1] = true
             if not flushQueued then flushQueued = true; C_Timer.After(0.2, FlushAuras) end
@@ -920,5 +1013,16 @@ local function DebugDump()
 end
 
 SlashCmdList.CUPCHECK = function(msg)
-    if strtrim(msg or ""):lower() == "debug" then Safe("debug", DebugDump) else ToggleOptions() end
+    local cmd = strtrim(msg or ""):lower()
+    local secs = cmd:match("^ws%s+(%d+)$")
+    if cmd == "debug" then
+        Safe("debug", DebugDump)
+    elseif secs then
+        -- /cupcheck ws <seconds>: how long the Weakened Soul timer runs (the debuff is 15s in Classic).
+        secs = math.max(5, math.min(60, tonumber(secs)))
+        db.wsDuration = secs
+        Print("Weakened Soul timer set to " .. secs .. " seconds")
+    else
+        ToggleOptions()
+    end
 end

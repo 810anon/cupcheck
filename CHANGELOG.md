@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.4
+- A "Camp Benefits" buff now counts as the class buffs that camp objects substitute for (Fortitude, Mark of the Wild, Arcane Intellect, Divine Spirit, Might, Kings, Wisdom, Strength of Earth). Those icons no longer show as missing when the camp buff covers them. Toggle: "Camp Benefits counts as class buffs" in the options window.
+- Priests: a Weakened Soul timer icon appears on a member's frame after you cast Power Word: Shield on them. It is driven by your own casts, so it works with "Display Only Dispellable Debuffs" on and in combat. Toggle in the options window; length via `/cupcheck ws <seconds>` (default 15).
+
 ## 0.3.3
 - Removed Omen of Clarity from the Druid buff list. It is a passive on the Forever client, so there is nothing to track.
 - Icons no longer re-read buffs while you, the player being checked, or a boss encounter is in combat, even before the combat lockdown flag is set. This fixes icons showing on buffed players during some group and raid fights.
