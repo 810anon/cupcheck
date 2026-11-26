@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.6
+- Priests: removed Cup Check's own Power Word: Shield icon. In a party or raid, Blizzard's frames draw the shield and update it as soon as it breaks, so only the Weakened Soul timer is added.
+- The solo frame shows Weakened Soul but not the shield. The client blocks reading your own buffs in combat, so the solo frame cannot tell when a shield breaks mid-fight, and a timer-based icon would be wrong. Your default buff bar still shows it.
+
 ## 0.3.5
 - Priests: the Weakened Soul icon now uses the real debuff's icon and a red tint, so it no longer looks like the shield. A Power Word: Shield buff icon is shown beside it. Both are driven by your own casts in combat and read the real auras out of combat.
 - Fixed the Weakened Soul and Shield icons not showing in combat (the cast target name did not match the unit name).
