@@ -6,8 +6,9 @@ $ErrorActionPreference = 'Stop'
 $script = Join-Path $PSScriptRoot 'Update-Toc.ps1'
 $user = "$env:USERDOMAIN\$env:USERNAME"
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-  -Argument "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$script`""
+# conhost --headless runs PowerShell with no console window at all; -WindowStyle Hidden still flashes one.
+$action = New-ScheduledTaskAction -Execute "$env:windir\System32\conhost.exe" `
+  -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$script`""
 $triggers = @(
   (New-ScheduledTaskTrigger -AtLogOn -User $user),
   (New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Hours 12))
