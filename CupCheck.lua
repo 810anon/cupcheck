@@ -123,7 +123,7 @@ local function Print(msg) print("|cff66ccffCup Check:|r " .. msg) end
 local reported = {}
 local function Safe(tag, fn, ...)
     local ok, err = pcall(fn, ...)
-    if not ok and not reported[tag] then
+    if not ok and (not reported[tag] or (db and db.wsDebug)) then
         reported[tag] = true
         Print(tag .. " error: " .. tostring(err))
     end
@@ -220,6 +220,7 @@ local function NewIcon(frame)
     b.cooldown = CreateFrame("Cooldown", nil, b, "CooldownFrameTemplate")
     b.cooldown:SetAllPoints()
     b.cooldown:SetDrawEdge(false)
+    b.cooldown:SetHideCountdownNumbers(true)
     b:Hide()
     return b
 end
@@ -229,22 +230,34 @@ local function Layout(frame, list)
     local left = a:find("LEFT") ~= nil
     local top = a:find("TOP") ~= nil
     -- Blizzard's native aura size is 11, scaled with the frame like its own icons; bottom icons sit above the power bar.
-    local scale = 1
-    local w, h = frame:GetSize()
-    if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then scale = math.min(h / 36, w / 72) end
-    scale = math.max(0.5, math.min(2, scale))
-    local size = 11 * scale
-    local pad = 2 * scale
-    if not top then
-        local pb = frame.powerBar or frame.power
-        if pb and pb:IsShown() then
-            local ph = pb:GetHeight()
-            pad = pad + (type(ph) == "number" and ph or 8 * scale)
+    -- In combat the client can hand back unusable (secret) sizes, which makes the maths below error.
+    -- So measure under pcall and fall back to the last good measurement.
+    local ok, size, pad = pcall(function()
+        local scale = 1
+        local w, h = frame:GetSize()
+        if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then scale = math.min(h / 36, w / 72) end
+        scale = math.max(0.5, math.min(2, scale))
+        local sz = 11 * scale
+        local pd = 2 * scale
+        if not top then
+            local pb = frame.powerBar or frame.power
+            if pb and pb:IsShown() then
+                local ph = pb:GetHeight()
+                pd = pd + (type(ph) == "number" and ph or 8 * scale)
+            end
         end
+        return sz, pd
+    end)
+    if ok and size and pad then
+        list.geo = { size, pad }
+    else
+        local g = list.geo or { 11, 2 }
+        size, pad = g[1], g[2]
     end
     local prev
     local seq = {}
     for _, b in ipairs(list) do seq[#seq + 1] = b end
+    if list.ps then seq[#seq + 1] = list.ps end
     if list.ws then seq[#seq + 1] = list.ws end
     for _, b in ipairs(seq) do
         b:SetSize(size, size)
@@ -266,19 +279,27 @@ end
 -- Weakened Soul timer. Reading other players' auras is blocked in combat, so instead of reading the debuff
 -- we note our own Power Word: Shield casts (those events aren't restricted) and run a local timer per name.
 local WS_SPELL = "Power Word: Shield"
-local WS_ICON = 135940
+local WS_ICON = "Interface\\Icons\\Spell_Holy_AshesToAshes"   -- the Weakened Soul debuff icon, not the shield's
 local wsExpires = {}   -- short player name -> GetTime() when the timer ends
 local wsPending        -- { guid, name } for the shield cast in flight
 
-local function WSExpiry(unit)
+local wsDbgT
+local psExpires = {}   -- same, for the Power Word: Shield buff itself
+local PS_DURATION = 30
+local PS_ICON = 135940
+
+local nameCache = {}   -- unit token -> short name, refreshed out of combat (names may be unreadable mid-fight)
+local function Expiry(tbl, unit)
     local ok, exp = pcall(function()
-        local n = UnitName(unit)
-        local e = wsExpires[n]
-        if e and e <= GetTime() then wsExpires[n] = nil; return nil end
+        local n = nameCache[unit]
+        if not n then n = UnitName(unit) end
+        local e = tbl[n]
+        if e and e <= GetTime() then tbl[n] = nil; return nil end
         return e
     end)
     return ok and exp or nil
 end
+local function WSExpiry(unit) return Expiry(wsExpires, unit) end
 
 local function UpdateFrame(frame)
     if frame.IsForbidden and frame:IsForbidden() then return end
@@ -294,6 +315,7 @@ local function UpdateFrame(frame)
     local valid = canRead and UnitExists(unit) and UnitIsPlayer(unit) and UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit) and UnitIsFriend("player", unit)
     local isSelf = valid and UnitIsUnit(unit, "player") or false
+    if valid then nameCache[unit] = UnitName(unit) end
     for i, buff in ipairs(tracked) do
         local b = list[i]
         if not b then b = NewIcon(frame); list[i] = b end
@@ -315,20 +337,63 @@ local function UpdateFrame(frame)
     if db.weakenedSoul then
         if not w then
             w = NewIcon(frame)
-            w.icon:SetTexture(C_Spell.GetSpellTexture(6788) or WS_ICON)
+            w.icon:SetTexture(WS_ICON)
+            w.icon:SetVertexColor(1, 0.45, 0.45)   -- red tint: reads as a debuff, not the shield buff
             list.ws = w
         end
         local exp = WSExpiry(unit)
-        if exp then
+        -- Out of combat the real debuff is readable: take its true icon (and duration) from it.
+        local real = valid and C_UnitAuras.GetAuraDataBySpellName(unit, "Weakened Soul", "HARMFUL") or nil
+        if real and real.icon then w.icon:SetTexture(real.icon) end
+        if exp or real then
             local dur = db.wsDuration or 15
+            local start = exp and (exp - dur) or nil
+            if real and real.duration and real.duration > 0 then
+                dur = real.duration; start = real.expirationTime - real.duration
+            end
             w.want = true
-            CooldownFrame_Set(w.cooldown, exp - dur, dur, true)
+            if start then CooldownFrame_Set(w.cooldown, start, dur, true) else CooldownFrame_Clear(w.cooldown) end
         else
             w.want = false
             CooldownFrame_Clear(w.cooldown)
         end
     elseif w then
         w.want = false
+    end
+    if db.wsDebug and not canRead and unit == "player" and (wsDbgT or 0) < GetTime() then
+        wsDbgT = GetTime() + 2
+        Print("combat draw: unit=" .. tostring(unit) .. " ws.exp=" .. tostring(Expiry(wsExpires, unit))
+            .. " ws.want=" .. tostring(list.ws and list.ws.want) .. " ps.exp=" .. tostring(Expiry(psExpires, unit))
+            .. " cache=" .. tostring(nameCache[unit]) .. " frame=" .. tostring(frame:GetName()))
+    end
+    -- The Power Word: Shield buff: our own cast timer in combat, the real aura (and its true duration) out of it.
+    local p = list.ps
+    if db.weakenedSoul then
+        if not p then
+            p = NewIcon(frame)
+            p.icon:SetTexture(C_Spell.GetSpellTexture(17) or PS_ICON)
+            list.ps = p
+        end
+        local pexp = Expiry(psExpires, unit)
+        local preal = valid and C_UnitAuras.GetAuraDataBySpellName(unit, WS_SPELL, "HELPFUL") or nil
+        local pstart, pdur
+        if preal and preal.duration and preal.duration > 0 then
+            pdur = preal.duration; pstart = preal.expirationTime - preal.duration
+        elseif pexp and valid and not preal and GetTime() - (pexp - PS_DURATION) > 1.5 then
+            psExpires[nameCache[unit] or UnitName(unit)] = nil   -- gone early (absorbed or dispelled)
+            pexp = nil
+        elseif pexp then
+            pdur = PS_DURATION; pstart = pexp - PS_DURATION
+        end
+        if pstart then
+            p.want = true
+            CooldownFrame_Set(p.cooldown, pstart, pdur, true)
+        else
+            p.want = false
+            CooldownFrame_Clear(p.cooldown)
+        end
+    elseif p then
+        p.want = false
     end
     Layout(frame, list)
 end
@@ -786,7 +851,7 @@ local function CreateOptions()
     MakeCheck(f, "Camp Benefits counts as class buffs", -604,
         function() return db.campCounts end,
         function(v) db.campCounts = v; ApplyAll() end)
-    MakeCheck(f, "Weakened Soul timer after you shield (Priest)", -628,
+    MakeCheck(f, "Shield + Weakened Soul icons after you shield (Priest)", -628,
         function() return db.weakenedSoul end,
         function(v) db.weakenedSoul = v; ApplyAll() end)
     local wsNote = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
@@ -933,28 +998,41 @@ ev:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)
     if event == "UNIT_SPELLCAST_SENT" then
         -- (unit, target name, castGUID, spellID): remember who a Power Word: Shield is headed for.
         if db and db.weakenedSoul then
-            pcall(function()
+            local ok, err = pcall(function()
                 local info = C_Spell.GetSpellInfo(arg4)
                 if info and info.name == WS_SPELL then
                     local name = type(arg2) == "string" and arg2 ~= "" and strsplit("-", arg2) or UnitName("player")
                     wsPending = { guid = arg3, name = name }
+                    if db.wsDebug then Print("shield sent to " .. tostring(name)) end
                 else
                     wsPending = nil
                 end
             end)
+            if not ok then wsPending = nil; if db.wsDebug then Print("SENT error: " .. tostring(err)) end end
         end
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         -- (unit, castGUID, spellID): the shield landed, so start that player's timer.
         if db and db.weakenedSoul and wsPending then
-            pcall(function()
+            local ok, err = pcall(function()
+                if wsPending.guid ~= arg2 then
+                    if db.wsDebug then Print("SUCCEEDED guid mismatch") end
+                end
                 if wsPending.guid == arg2 then
                     local dur = db.wsDuration or 15
-                    wsExpires[wsPending.name] = GetTime() + dur
+                    -- The cast reports "Athletic Cup" where UnitName gives "Athletic", so key on both spellings.
+                    local first = wsPending.name:match("^(%S+)")
+                    for _, key in ipairs({ wsPending.name, first }) do
+                        wsExpires[key] = GetTime() + dur
+                        psExpires[key] = GetTime() + PS_DURATION
+                    end
                     wsPending = nil
+                    C_Timer.After(PS_DURATION + 0.2, RefreshAll)
                     RefreshAll()
                     C_Timer.After(dur + 0.2, RefreshAll)
+                    if db.wsDebug then Print("shield landed, icons set") end
                 end
             end)
+            if not ok and db.wsDebug then Print("SUCCEEDED error: " .. tostring(err)) end
         end
     elseif event == "UNIT_AURA" then
         if type(arg1) == "string" and not InCombatLockdown() and not UnitAffectingCombat("player") then
@@ -1015,7 +1093,10 @@ end
 SlashCmdList.CUPCHECK = function(msg)
     local cmd = strtrim(msg or ""):lower()
     local secs = cmd:match("^ws%s+(%d+)$")
-    if cmd == "debug" then
+    if cmd == "wsdebug" then
+        db.wsDebug = not db.wsDebug
+        Print("shield/Weakened Soul debug " .. (db.wsDebug and "on" or "off"))
+    elseif cmd == "debug" then
         Safe("debug", DebugDump)
     elseif secs then
         -- /cupcheck ws <seconds>: how long the Weakened Soul timer runs (the debuff is 15s in Classic).

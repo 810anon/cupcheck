@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5
+- Priests: the Weakened Soul icon now uses the real debuff's icon and a red tint, so it no longer looks like the shield. A Power Word: Shield buff icon is shown beside it. Both are driven by your own casts in combat and read the real auras out of combat.
+- Fixed the Weakened Soul and Shield icons not showing in combat (the cast target name did not match the unit name).
+- Icon layout is now measured under protection and falls back to the last good size, so it cannot error in combat.
+- Icons no longer draw cooldown countdown numbers.
+- Added `/cupcheck wsdebug` to print shield and Weakened Soul tracking events.
+
 ## 0.3.4
 - A "Camp Benefits" buff now counts as the class buffs that camp objects substitute for (Fortitude, Mark of the Wild, Arcane Intellect, Divine Spirit, Might, Kings, Wisdom, Strength of Earth). Those icons no longer show as missing when the camp buff covers them. Toggle: "Camp Benefits counts as class buffs" in the options window.
 - Priests: a Weakened Soul timer icon appears on a member's frame after you cast Power Word: Shield on them. It is driven by your own casts, so it works with "Display Only Dispellable Debuffs" on and in combat. Toggle in the options window; length via `/cupcheck ws <seconds>` (default 15).
