@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.7
+- Battlegrounds: the client hides all buff data from addons, so Cup Check now shows no icons there instead of false "missing" ones, and prints a one-time chat line saying so.
+- Fixed icons staying on the wrong player after raid roster changes, including self-only buffs such as Inner Fire appearing on other players.
+- Added `/cupcheck lock`, which reports whether the client is hiding buff data.
+
 ## 0.3.6
 - Priests: removed Cup Check's own Power Word: Shield icon. In a party or raid, Blizzard's frames draw the shield and update it as soon as it breaks, so only the Weakened Soul timer is added.
 - The solo frame shows Weakened Soul but not the shield. The client blocks reading your own buffs in combat, so the solo frame cannot tell when a shield breaks mid-fight, and a timer-based icon would be wrong. Your default buff bar still shows it.

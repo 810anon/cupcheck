@@ -184,6 +184,19 @@ local function AllBuffs()
     return out
 end
 
+-- True when the client is hiding aura data from addons (battlegrounds and other restricted content). An empty
+-- read there would look like "missing", so callers hold the last state instead.
+local function AurasLocked(unit)
+    local s = C_Secrets
+    if not s then return false end
+    local ok, locked = pcall(function()
+        if s.ShouldAurasBeSecret and s.ShouldAurasBeSecret() then return true end
+        if unit and s.ShouldUnitAuraBeSecret and s.ShouldUnitAuraBeSecret(unit) then return true end
+        return false
+    end)
+    return ok and locked or false
+end
+
 -- The aura on a unit for a tracked buff, counting group versions of the same buff.
 local function FindAura(unit, buff)
     local aura = C_UnitAuras.GetAuraDataBySpellName(unit, buff.name, "HELPFUL")
@@ -305,16 +318,20 @@ local function UpdateFrame(frame)
     if not list then list = {}; overlays[frame] = list end
     -- Aura data can be unreadable in a fight (or boss encounter) before the combat lockdown flag is set;
     -- an empty read would look like "missing", so hold the last good state instead.
-    local canRead = not InCombatLockdown() and not UnitAffectingCombat("player")
+    local canRead = not AurasLocked(unit) and not InCombatLockdown() and not UnitAffectingCombat("player")
         and not (IsEncounterInProgress and IsEncounterInProgress())
         and not UnitAffectingCombat(unit)
     local valid = canRead and UnitExists(unit) and UnitIsPlayer(unit) and UnitIsConnected(unit)
         and not UnitIsDeadOrGhost(unit) and UnitIsFriend("player", unit)
     local isSelf = valid and UnitIsUnit(unit, "player") or false
     if valid then nameCache[unit] = UnitName(unit) end
+    -- Raid frames are reused for different players when the roster changes, so a held icon can end up on the
+    -- wrong person. When the client hides auras altogether, nothing held is trustworthy: clear it.
+    local locked = AurasLocked(unit)
     for i, buff in ipairs(tracked) do
         local b = list[i]
         if not b then b = NewIcon(frame); list[i] = b end
+        if locked then b.want = false end
         if canRead then
             local applies = valid and (isSelf or not SELF_ONLY[buff.name]) or false
             local aura = applies and FindAura(unit, buff) or nil
@@ -1037,6 +1054,20 @@ ev:SetScript("OnEvent", function(_, event, arg1, arg2, arg3, arg4)
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pendingApply then ApplyAll(true) else RefreshAll() end
     else -- PLAYER_ENTERING_WORLD, GROUP_ROSTER_UPDATE, SPELLS_CHANGED
+        if event == "GROUP_ROSTER_UPDATE" then
+            -- Frames now show different players; held icons belong to the old ones. Drop them, the next read redraws.
+            for _, list in pairs(overlays) do
+                for _, b in pairs(list) do if type(b) == "table" and b.want then b.want = false end end
+            end
+        end
+        if event == "PLAYER_ENTERING_WORLD" then
+            C_Timer.After(3, function()
+                local _, instanceType = IsInInstance()
+                if instanceType == "pvp" and AurasLocked("raid1") then
+                    Print("Buff data is hidden by the client in battlegrounds, so Cup Check shows no icons here.")
+                end
+            end)
+        end
         if db and playerClass then QueueRescan() end
     end
 end)
@@ -1048,6 +1079,11 @@ local function DebugDump()
     local solo = CupCheckSolo
     Print("group: " .. tostring(IsInGroup()) .. ", raid: " .. tostring(IsInRaid())
         .. ", solo frame shown: " .. tostring(solo and solo:IsShown()) .. ", mode: " .. tostring(db and db.frameMode))
+    local sec = C_Secrets
+    Print("aura lock: C_Secrets=" .. tostring(sec ~= nil)
+        .. ", ShouldAurasBeSecret=" .. tostring(sec and sec.ShouldAurasBeSecret and sec.ShouldAurasBeSecret())
+        .. ", raid1 secret=" .. tostring(sec and sec.ShouldUnitAuraBeSecret and sec.ShouldUnitAuraBeSecret("raid1"))
+        .. ", AurasLocked(raid1)=" .. tostring(AurasLocked("raid1")))
     for _, name in ipairs(CLASSIC_BUFFS[playerClass] or {}) do
         local info = C_Spell.GetSpellInfo(name)
         local id = info and info.spellID
@@ -1058,7 +1094,30 @@ end
 SlashCmdList.CUPCHECK = function(msg)
     local cmd = strtrim(msg or ""):lower()
     local secs = cmd:match("^ws%s+(%d+)$")
-    if cmd == "wsdebug" then
+    if cmd == "lock" then
+        local sec = C_Secrets
+        local function try(f, ...)
+            local ok, v = pcall(f, ...)
+            return ok and tostring(v) or ("error: " .. tostring(v))
+        end
+        Print("C_Secrets=" .. tostring(sec ~= nil)
+            .. " aurasSecret=" .. ((sec and sec.ShouldAurasBeSecret) and try(sec.ShouldAurasBeSecret) or "n/a")
+            .. " raid1=" .. ((sec and sec.ShouldUnitAuraBeSecret) and try(sec.ShouldUnitAuraBeSecret, "raid1") or "n/a")
+            .. " party1=" .. ((sec and sec.ShouldUnitAuraBeSecret) and try(sec.ShouldUnitAuraBeSecret, "party1") or "n/a")
+            .. " locked(raid1)=" .. tostring(AurasLocked("raid1")))
+        local n = 0
+        local list = {}
+        for i = 1, 20 do
+            local u = "raid" .. i
+            if UnitExists(u) then
+                local aura = try(C_UnitAuras.GetAuraDataBySpellName, u, "Power Word: Fortitude", "HELPFUL")
+                list[#list + 1] = u .. ":" .. (aura:find("table") and "has" or aura)
+                n = n + 1
+                if n >= 4 then break end
+            end
+        end
+        Print("fort reads: " .. table.concat(list, ", "))
+    elseif cmd == "wsdebug" then
         db.wsDebug = not db.wsDebug
         Print("shield/Weakened Soul debug " .. (db.wsDebug and "on" or "off"))
     elseif cmd == "debug" then
